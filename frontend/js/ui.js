@@ -7,107 +7,117 @@ const UI = {
      * Render a scenario card
      */
     renderScenarioCard(scenario, isSelected = false) {
-        const { aiAnalysis } = scenario;
+        const ai = scenario?.aiAnalysis || {};
+        const feasibility = Number.isFinite(ai.feasibility) ? ai.feasibility : 0;
+        const impact = Number.isFinite(ai.impact) ? ai.impact : 0;
+        const keyMetrics = Array.isArray(ai.keyMetrics) ? ai.keyMetrics : [];
+        const risks = Array.isArray(ai.risks) ? ai.risks : [];
+        const opportunities = Array.isArray(ai.opportunities) ? ai.opportunities : [];
+      
         const scoreClass = (score) => {
-            if (score >= 80) return 'score-high';
-            if (score >= 60) return 'score-medium';
-            return 'score-low';
+          if (score >= 80) return 'score-high';
+          if (score >= 60) return 'score-medium';
+          return 'score-low';
         };
-
+      
         const trendIcon = (trend) => {
-            if (trend === 'up') return `
-                <svg class="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
-                </svg>
-            `;
-            if (trend === 'down') return `
-                <svg class="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
-                </svg>
-            `;
-            return `<svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>`;
+          if (trend === 'up') return `
+            <svg class="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+            </svg>`;
+          if (trend === 'down') return `
+            <svg class="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+            </svg>`;
+          return `
+            <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path>
+            </svg>`;
         };
-
+      
         return `
-            <div class="scenario-card ${isSelected ? 'selected' : ''} bg-white rounded-lg shadow-md border border-slate-200 overflow-hidden fade-in" data-scenario-id="${scenario.id}">
-                <div class="p-6 space-y-4">
-                    <div class="flex items-start gap-3">
-                        <div class="custom-checkbox ${isSelected ? 'checked' : ''}" data-scenario-id="${scenario.id}">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                        </div>
-                        <div class="flex-1">
-                            <h3 class="text-lg font-bold text-slate-900 mb-2">${scenario.name}</h3>
-                            <p class="text-sm text-slate-600">${scenario.description}</p>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-3 text-sm pt-2">
-                        <div class="flex items-center gap-2">
-                            <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
-                            </svg>
-                            <span class="text-slate-600">${scenario.targetMarket}</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            <span class="text-slate-600">${scenario.timeline}</span>
-                        </div>
-                    </div>
-
-                    ${aiAnalysis ? `
-                    <div class="space-y-3 pt-3 border-t border-slate-200">
-                        <div class="flex items-center justify-between text-sm">
-                            <span class="text-slate-600">Feasibility Score</span>
-                            <span class="score-badge ${scoreClass(aiAnalysis.feasibility)}">${aiAnalysis.feasibility}%</span>
-                        </div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${aiAnalysis.feasibility}%"></div>
-                        </div>
-
-                        <div class="flex items-center justify-between text-sm">
-                            <span class="text-slate-600">Impact Score</span>
-                            <span class="score-badge ${scoreClass(aiAnalysis.impact)}">${aiAnalysis.impact}%</span>
-                        </div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${aiAnalysis.impact}%"></div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2 pt-2">
-                            ${aiAnalysis.keyMetrics.slice(0, 2).map(metric => `
-                                <div class="metric-card">
-                                    <div class="flex items-center justify-between mb-1">
-                                        <span class="text-xs text-slate-500">${metric.label}</span>
-                                        ${trendIcon(metric.trend)}
-                                    </div>
-                                    <span class="text-sm font-semibold text-slate-900">${metric.value}</span>
-                                </div>
-                            `).join('')}
-                        </div>
-
-                        <div class="flex gap-2 flex-wrap text-xs">
-                            <span class="badge badge-outline">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                                </svg>
-                                ${aiAnalysis.risks.length} Risks
-                            </span>
-                            <span class="badge badge-outline">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                                </svg>
-                                ${aiAnalysis.opportunities.length} Opportunities
-                            </span>
-                        </div>
-                    </div>
-                    ` : ''}
+          <div class="scenario-card ${isSelected ? 'selected' : ''} bg-white rounded-lg shadow-md border border-slate-200 overflow-hidden fade-in" data-scenario-id="${scenario.id}">
+            <div class="p-6 space-y-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-start gap-3">
+                  <div class="custom-checkbox ${isSelected ? 'checked' : ''}" data-scenario-id="${scenario.id}">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                  </div>
+                  <div class="flex-1">
+                    <h3 class="text-lg font-bold text-slate-900 mb-2">${scenario.name || 'Untitled'}</h3>
+                    <p class="text-sm text-slate-600">${scenario.description || ''}</p>
+                  </div>
                 </div>
+                <button class="text-xs text-red-600 hover:underline" data-action="delete-task" data-id="${scenario.id}">Delete</button>
+              </div>
+      
+              <div class="grid grid-cols-2 gap-3 text-sm pt-2">
+                <div class="flex items-center gap-2">
+                  <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                  </svg>
+                  <span class="text-slate-600">${scenario.targetMarket || ''}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span class="text-slate-600">${scenario.timeline || ''}</span>
+                </div>
+              </div>
+      
+              ${(Number.isFinite(feasibility) || Number.isFinite(impact) || keyMetrics.length || risks.length || opportunities.length) ? `
+              <div class="space-y-3 pt-3 border-t border-slate-200">
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-slate-600">Feasibility Score</span>
+                  <span class="score-badge ${scoreClass(feasibility)}">${feasibility}%</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" style="width: ${feasibility}%"></div></div>
+      
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-slate-600">Impact Score</span>
+                  <span class="score-badge ${scoreClass(impact)}">${impact}%</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" style="width: ${impact}%"></div></div>
+      
+                <div class="grid grid-cols-2 gap-2 pt-2">
+                  ${keyMetrics.slice(0, 2).map(metric => `
+                    <div class="metric-card">
+                      <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs text-slate-500">${metric.label ?? ''}</span>
+                        ${trendIcon(metric.trend)}
+                      </div>
+                      <span class="text-sm font-semibold text-slate-900">${metric.value ?? ''}</span>
+                    </div>
+                  `).join('')}
+                </div>
+      
+                <div class="flex gap-2 flex-wrap text-xs">
+                  <span class="badge badge-outline">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    ${risks.length} Risks
+                  </span>
+                  <span class="badge badge-outline">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                    ${opportunities.length} Opportunities
+                  </span>
+                </div>
+              </div>
+              ` : ''}
             </div>
+          </div>
         `;
-    },
+      },
+      
+      
+    
+      
 
     /**
      * Render comparison view
@@ -406,24 +416,123 @@ const UI = {
     /**
      * Show a toast notification
      */
+    // --- replace your UI.showToast with this ---
     showToast(message, type = 'success') {
+        // kill any existing toast so we never show both "Failed" and "Deleted"
+        const existing = document.querySelector('.toast');
+        if (existing) existing.remove();
+    
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
+        toast.setAttribute('role', 'status');
         toast.innerHTML = `
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                ${type === 'success' 
-                    ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>'
-                    : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>'
-                }
-            </svg>
-            <span>${message}</span>
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            ${type === 'success'
+            ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>'
+            : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>'
+            }
+        </svg>
+        <span>${message}</span>
         `;
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
+    
+        // auto-hide
+        setTimeout(() => toast.remove(), 2200);
     }
+  
+
+    /* ========= NEW UI for Tasks + Sessions ========= */
+
+    // Simple date/time helpers
+    ,_fmtDateTime(iso) {
+        const d = new Date(iso);
+        return d.toLocaleString();
+    },
+    _dayKey(iso) {
+        const d = new Date(iso);
+        return [d.getFullYear(), String(d.getMonth()+1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+    },
+
+    // Render Today's Work list
+    renderTodayList(container, tasks = []) {
+        container.innerHTML = '';
+        if (!tasks.length) {
+          container.innerHTML = '<li class="text-slate-500 text-sm">No tasks yet. Add one!</li>';
+          return;
+        }
+        tasks.forEach(t => {
+          const li = document.createElement('li');
+          li.className = 'task-item py-2 border-b border-slate-100 last:border-0';
+          li.innerHTML = `
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-slate-900 font-medium">${t.title || t.name || 'Untitled'}</div>
+                ${t.details ? `<div class="text-sm text-slate-600">${t.details}</div>` : (t.description ? `<div class="text-sm text-slate-600">${t.description}</div>` : '')}
+              </div>
+              <div class="flex items-center gap-3">
+                <button class="text-xs text-red-600 hover:underline" data-action="delete-task" data-id="${t.id}">Delete</button>
+                <div class="text-xs text-slate-500 whitespace-nowrap">${this._fmtDateTime(t.created_at || t.createdAt)}</div>
+              </div>
+            </div>
+          `;
+          container.appendChild(li);
+        });
+      },
+      
+      
+
+    // Group tasks by day within a session
+    _groupTasksByDay(tasks = []) {
+        const map = {};
+        for (const t of tasks) {
+            const key = this._dayKey(t.created_at);
+            if (!map[key]) map[key] = [];
+            map[key].push(t);
+        }
+        return map;
+    },
+
+    // Render Task History with sessions, each grouped by task day (newest day first)
+    renderHistoryGrouped(container, groupsObj) {
+        if (!container) return;
+        container.innerHTML = '';
+    
+        // groupsObj is expected like: { "YYYY-MM-DD": [taskRow, ...], ... }
+        const dates = Object.keys(groupsObj || {});
+        if (!dates.length) {
+            container.innerHTML = `
+              <div class="text-sm text-slate-500 bg-white border border-slate-200 rounded-lg p-6">
+                No past sessions yet.
+              </div>`;
+            return;
+        }
+    
+        // Newest date first
+        dates.sort((a, b) => (a < b ? 1 : -1));
+    
+        const sections = dates.map(dateKey => {
+            const rows = Array.isArray(groupsObj[dateKey]) ? groupsObj[dateKey] : [];
+            const normalized = rows.map(normalizeTask);
+            const inner = normalized.map(t => this.renderScenarioCard(t, false)).join('');
+            return `
+              <div class="bg-white rounded-lg border border-slate-200">
+                <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                  <h3 class="text-sm font-semibold text-slate-700">${dateKey}</h3>
+                  <span class="text-xs text-slate-500">${normalized.length} item(s)</span>
+                </div>
+                <div class="p-4 grid gap-4 md:grid-cols-2">
+                  ${inner}
+                </div>
+              </div>
+            `;
+        });
+    
+        container.innerHTML = sections.join('');
+    },
+    
 };
 
-// Export for use in other files
+// Export for tests
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = UI;
 }

@@ -1,36 +1,19 @@
 /**
- * API Client for backend communication
+ * API Client for backend communication (SQLite-ready)
  */
 
-// Define API_BASE_URL - this is the single source of truth
-// Since api.js loads before app.js, this will be available
-var API_BASE_URL = 'http://localhost:8000'; // FastAPI default port
+var API_BASE_URL = 'http://localhost:8000';
 
-// Test backend connection
-async function testBackendConnection() {
-  try {
-    const response = await fetch(`${API_BASE_URL}/health`);
-    if (response.ok) {
-      console.log('✅ Backend is connected and running');
-      const config = await fetch(`${API_BASE_URL}/config`).then(r => r.json());
-      console.log('Backend config:', config);
-      return true;
-    }
-  } catch (error) {
-    console.error('❌ Backend connection failed:', error);
-    console.error('Make sure the backend is running on port 8000');
-    return false;
-  }
-}
-
-// Test on load
+// Health check on load (non-blocking)
 if (typeof window !== 'undefined') {
   window.addEventListener('load', () => {
-    testBackendConnection();
+    fetch(`${API_BASE_URL}/health`)
+      .then(() => console.log('✅ Backend is connected and running'))
+      .catch(() => console.warn('⚠️ Backend not reachable on port 8000'));
   });
 }
 
-// Helpers
+/* ---------------- Helpers ---------------- */
 function pct(n, fallback = 70) {
   const x = Number.isFinite(n) ? n : fallback;
   return Math.max(0, Math.min(100, Math.round(x)));
@@ -49,53 +32,21 @@ function buildScenarioText(d) {
 }
 
 const API = {
-  /**
-   * Analyze a new scenario (calls FastAPI /simulate which calls Groq)
-   */
+  /* ================= LLM simulate ================= */
   async analyzeScenario(scenarioData) {
     try {
-      console.log('🚀 Sending scenario to backend:', scenarioData.name);
-      
-      const requestBody = {
-        scenario: buildScenarioText(scenarioData),
-        context: null,
-      };
-
-      console.log('📤 Request payload:', requestBody);
-
+      const requestBody = { scenario: buildScenarioText(scenarioData), context: null };
       const response = await fetch(`${API_BASE_URL}/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         mode: 'cors',
         body: JSON.stringify(requestBody),
       });
-
-      console.log('📥 Response status:', response.status, response.statusText);
-
       if (!response.ok) {
-        // Print the server text so we can see the actual backend error
-        const text = await response.text();
-        console.error('❌ API error body:', text);
-        let errorDetail = text;
-        try {
-          const errorJson = JSON.parse(text);
-          errorDetail = errorJson.detail || errorJson.error || text;
-        } catch (e) {
-          // Not JSON, use as-is
-        }
-        throw new Error(`Backend error (${response.status}): ${errorDetail}`);
+        const body = await response.text();
+        throw new Error(`Backend error (${response.status}): ${body}`);
       }
-
       const result = await response.json();
-      console.log('✅ Received AI analysis from backend:', result);
-      // Expected result shape from backend LLM:
-      // {
-      //   classification, scores:{risk, customer, competitive, cost, overall},
-      //   reasons:{risk, customer, competitive, cost},
-      //   impacts:{risk, customer, competitive, cost},
-      //   top_risks: [{title, mitigation}], opportunities:[...],
-      //   recommendation:{decision, rationale, next_actions, ...}
-      // }
 
       const scores = result?.scores || {};
       const reasons = result?.reasons || {};
@@ -104,23 +55,16 @@ const API = {
       const topRisks = Array.isArray(result?.top_risks) ? result.top_risks : [];
       const opps = Array.isArray(result?.opportunities) ? result.opportunities : [];
 
-      // Map to UI model
       const feasibility = pct(scores.overall, 70);
-      // Simple impact heuristic using customer + competitive signal
       const impact = pct((scores.customer ?? 0) + (scores.competitive ?? 0) + 50, 75);
 
-      // Build readable risks/opportunities lists
       const riskList = [
-        impacts.risk,
-        impacts.customer,
-        impacts.competitive,
-        impacts.cost,
+        impacts.risk, impacts.customer, impacts.competitive, impacts.cost,
         ...topRisks.map(r => `${r.title} — Mitigation: ${r.mitigation}`),
       ].filter(Boolean);
 
       const oppList = [
         ...opps,
-        // Add positive takes if present in impacts/reasons
         ...(reasons.competitive && /advantage|position|differentiation/i.test(reasons.competitive) ? [reasons.competitive] : []),
         ...(reasons.customer && /growth|upsell|benefit|retention/i.test(reasons.customer) ? [reasons.customer] : []),
       ].filter(Boolean).slice(0, 6);
@@ -131,8 +75,8 @@ const API = {
         description: scenarioData.description,
         targetMarket: scenarioData.targetMarket,
         timeline: scenarioData.timeline,
-        resources: scenarioData.resources,
-        assumptions: scenarioData.assumptions,
+        resources: scenarioData.resources || null,
+        assumptions: scenarioData.assumptions || [],
         createdAt: new Date().toISOString(),
         aiAnalysis: {
           feasibility,
@@ -141,52 +85,78 @@ const API = {
           opportunities: oppList,
           recommendation: rec.rationale || '',
           keyMetrics: [
-            {
-              label: 'Feasibility Score',
-              value: `${feasibility}%`,
-              trend: feasibility >= 70 ? 'up' : feasibility >= 50 ? 'neutral' : 'down',
-            },
-            {
-              label: 'Time to Market',
-              value: scenarioData.timeline,
-              trend: 'neutral',
-            },
-            {
-              label: 'Risk Level',
-              value: `${pct(scores.risk, 50)}%`,
-              trend: (scores.risk ?? 50) > 70 ? 'down' : (scores.risk ?? 50) > 50 ? 'neutral' : 'up',
-            },
-            {
-              label: 'Customer Impact',
-              value: `${(scores.customer ?? 0) > 0 ? '+' : ''}${pct(scores.customer ?? 0, 0)}%`,
-              trend: (scores.customer ?? 0) > 0 ? 'up' : (scores.customer ?? 0) < 0 ? 'down' : 'neutral',
-            },
+            { label: 'Feasibility Score', value: `${feasibility}%`, trend: feasibility >= 70 ? 'up' : feasibility >= 50 ? 'neutral' : 'down' },
+            { label: 'Time to Market', value: scenarioData.timeline, trend: 'neutral' },
+            { label: 'Risk Level', value: `${pct(scores.risk, 50)}%`, trend: (scores.risk ?? 50) > 70 ? 'down' : (scores.risk ?? 50) > 50 ? 'neutral' : 'up' },
+            { label: 'Customer Impact', value: `${(scores.customer ?? 0) > 0 ? '+' : ''}${pct(scores.customer ?? 0, 0)}%`, trend: (scores.customer ?? 0) > 0 ? 'up' : (scores.customer ?? 0) < 0 ? 'down' : 'neutral' },
           ],
-
-          // Expose full AI details so the UI can show “why”
           aiReasons: reasons,
           aiRecommendationFull: rec,
           aiRaw: result,
         },
       };
-    } catch (error) {
-      console.error('❌ Error analyzing scenario:', error);
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
-      
-      // Show user-friendly error
-      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-        console.warn('⚠️ Backend not reachable. Using mock data. Make sure backend is running on port 8000.');
-      }
-      
+    } catch (err) {
+      console.error('❌ analyzeScenario failed, using mock:', err);
       return this.getMockAnalysis(scenarioData);
     }
   },
 
-  /** (Optional) These endpoints need backend routes if you want them */
+  /* ================= Tasks (SQLite) ================= */
+  // Matches FastAPI TaskCreate (aliases enabled in Pydantic)
+  async createTask({
+    name, description, targetMarket, timeline,
+    resources = null, assumptions = [], aiAnalysis = null, createdAt = null
+  }) {
+    const body = {
+      name,
+      description,
+      targetMarket,   // alias -> target_market
+      timeline,
+      resources,
+      assumptions,
+      aiAnalysis,     // alias -> ai_analysis
+      createdAt       // alias -> created_at
+    };
+
+    const r = await fetch(`${API_BASE_URL}/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const text = await r.text();
+    if (!r.ok) {
+      console.error('❌ Save failed body:', text);
+      throw new Error('Failed to create task');
+    }
+    return JSON.parse(text);
+  },
+
+  async getTodayTasks() {
+    const r = await fetch(`${API_BASE_URL}/tasks/today`);
+    if (!r.ok) throw new Error("Failed to load today's tasks");
+    return r.json();
+  },
+
+  async getHistoryGroups() {
+    // returns { groups: { 'YYYY-MM-DD': [tasks...] } }
+    const r = await fetch(`${API_BASE_URL}/tasks/history`);
+    if (!r.ok) throw new Error('Failed to load history');
+    return r.json();
+  },
+
+  async deleteTask(id) {
+    console.log('🗑️ Deleting task', id);
+    const r = await fetch(`${API_BASE_URL}/tasks/${id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      console.error('❌ Delete failed:', body || r.statusText);
+      throw new Error('Failed to delete task');
+    }
+    return r.json();
+  },
+
+  /* ========== Legacy helpers (optional) ========== */
   async getScenarios() {
     try {
       const response = await fetch(`${API_BASE_URL}/scenarios`);
@@ -199,8 +169,9 @@ const API = {
   },
 
   async deleteScenario(scenarioId) {
+    // Kept for back-compat; routes to /tasks/{id}
     try {
-      const response = await fetch(`${API_BASE_URL}/scenarios/${scenarioId}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE_URL}/tasks/${scenarioId}`, { method: 'DELETE' });
       return response.ok;
     } catch (error) {
       console.error('Error deleting scenario:', error);
@@ -208,7 +179,7 @@ const API = {
     }
   },
 
-  // Mock fallback
+  /* ================= Mock ================= */
   getMockAnalysis(scenarioData) {
     const feasibility = Math.floor(Math.random() * 30) + 70;
     const impact = Math.floor(Math.random() * 30) + 70;
@@ -248,7 +219,12 @@ const API = {
   },
 };
 
-// Export for tests
+/* ---- Back-compat shims so older code paths keep working ---- */
+if (!API.getCurrentTasks) {
+  API.getCurrentTasks = API.getTodayTasks;
+}
+
+/* Node export (optional) */
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = API;
 }

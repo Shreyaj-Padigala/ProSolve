@@ -192,26 +192,63 @@
             </button>
         </div>
 
-        <!-- Tab Content -->
-        <div id="tab-content">
-            <div id="overview-content" class="tab-content active">
-                <div id="selection-banner" class="hidden bg-violet-50 border border-violet-200 rounded-lg p-4 flex items-center justify-between mb-6">
-                    <p class="text-slate-700"><span id="selection-count">0</span> task(s) selected</p>
-                    <div class="flex gap-2">
-                        <button id="compare-selected-btn" class="hidden px-4 py-2 bg-white border border-violet-300 rounded-lg text-violet-700 hover:bg-violet-50 transition-colors text-sm">
-                            Compare Selected
-                        </button>
-                        <button id="clear-selection-btn" class="px-4 py-2 text-slate-600 hover:text-slate-900 transition-colors text-sm">
-                            Clear Selection
-                        </button>
-                    </div>
-                </div>
-                <div id="scenarios-grid" class="grid gap-6 md:grid-cols-2"></div>
-            </div>
-
-            <div id="compare-content" class="tab-content hidden"></div>
-            <div id="insights-content" class="tab-content hidden"></div>
+      <!-- Tab Content -->
+<div id="tab-content">
+    <!-- OVERVIEW -->
+    <div id="overview-content" class="tab-content active space-y-8">
+      <!-- Selection banner (unchanged) -->
+      <div id="selection-banner" class="hidden bg-violet-50 border border-violet-200 rounded-lg p-4 flex items-center justify-between">
+        <p class="text-slate-700"><span id="selection-count">0</span> task(s) selected</p>
+        <div class="flex gap-2">
+          <button id="compare-selected-btn" class="hidden px-4 py-2 bg-white border border-violet-300 rounded-lg text-violet-700 hover:bg-violet-50 transition-colors text-sm">
+            Compare Selected
+          </button>
+          <button id="clear-selection-btn" class="px-4 py-2 text-slate-600 hover:text-slate-900 transition-colors text-sm">
+            Clear Selection
+          </button>
         </div>
+      </div>
+  
+      <!-- TODAY’S WORK -->
+      <section>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-bold text-slate-900">Today’s Work</h2>
+          <button
+            type="button"
+            id="new-scenario-btn-inline"
+            class="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+            onclick="window.showCreatorForm && window.showCreatorForm();"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+            </svg>
+            New Task
+          </button>
+        </div>
+        <!-- Uses existing card renderer -->
+        <div id="scenarios-grid" class="grid gap-6 md:grid-cols-2"></div>
+        <!-- Empty state for Today -->
+        <div id="today-empty" class="hidden text-sm text-slate-500 bg-white border border-slate-200 rounded-lg p-6 mt-2">
+          Nothing for today yet — click <span class="font-medium">New Task</span> to add one.
+        </div>
+      </section>
+  
+      <!-- TASK HISTORY -->
+      <section>
+        <h2 class="text-lg font-bold text-slate-900 mb-3">Task History</h2>
+        <div id="history-groups" class="space-y-6">
+          <!-- Filled by app.js (grouped by YYYY-MM-DD) -->
+        </div>
+      </section>
+    </div>
+  
+    <!-- COMPARE -->
+    <div id="compare-content" class="tab-content hidden"></div>
+  
+    <!-- AI INSIGHTS -->
+    <div id="insights-content" class="tab-content hidden"></div>
+  </div>
+  
     </main>
 
     <!-- Loading Overlay -->

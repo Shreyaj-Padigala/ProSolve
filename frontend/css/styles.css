@@ -308,3 +308,17 @@ button:disabled {
 .crown-icon {
   color: #fbbf24;
 }
+/* --- Cards: delete button + hover --- */
+.delete-task { transition: transform .15s ease; }
+.delete-task:hover { transform: scale(1.03); }
+
+/* --- History sections used by UI.renderHistoryGrouped --- */
+.session-card { margin-bottom: 16px; }
+.session-body .day-group { padding-top: 6px; }
+.session-body .list { list-style: none; margin: 0; padding: 0; }
+
+/* --- Today list items --- */
+.task-item { display: block; }
+
+/* (Optional) tighter spacing on scenario cards in history grid */
+#history-groups .scenario-card { margin-bottom: 0; }

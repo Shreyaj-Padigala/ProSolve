@@ -2,16 +2,89 @@
  * Main Application Logic
  */
 
-// Backend API URL is defined in api.js (which loads first)
-// No need to redeclare it here - it's available globally
-
 // Application State
 const AppState = {
-    scenarios: [],
+    scenarios: [],              // today
     selectedScenarios: [],
     currentTab: 'overview',
-};
+    todayTasks: [],
+    sessions: [],               // (not used now, but kept)
+    historyTasksFlat: [],       // <— NEW: flattened list of *all* history tasks
+  };
+  
 
+  function normalizeTask(t) {
+    const isDB = Object.prototype.hasOwnProperty.call(t, "target_market") || Object.prototype.hasOwnProperty.call(t, "created_at");
+    const dbId = (isDB ? t.id : null);
+  
+    const aiRaw = (isDB ? t.ai_analysis : t.aiAnalysis) || {};
+    return {
+      // if it’s from DB use the real id; otherwise let client items fall back
+      id: dbId != null ? String(dbId) : String(t.id ?? Date.now()),
+      name: t.name,
+      description: t.description,
+      targetMarket: isDB ? t.target_market : t.targetMarket,
+      timeline: t.timeline,
+      resources: t.resources ?? null,
+      assumptions: t.assumptions ?? [],
+      createdAt: t.created_at || t.createdAt || new Date().toISOString(),
+      aiAnalysis: {
+        feasibility: aiRaw.feasibility ?? 0,
+        impact: aiRaw.impact ?? 0,
+        risks: Array.isArray(aiRaw.risks) ? aiRaw.risks : [],
+        opportunities: Array.isArray(aiRaw.opportunities) ? aiRaw.opportunities : [],
+        recommendation: aiRaw.recommendation ?? "",
+        keyMetrics: Array.isArray(aiRaw.keyMetrics) ? aiRaw.keyMetrics : [],
+        aiReasons: aiRaw.aiReasons || aiRaw.reasons || null,
+        aiRecommendationFull: aiRaw.aiRecommendationFull || aiRaw.recommendation || null,
+        aiRaw
+      }
+    };
+  }
+  
+  // ---------- Deletion + Delegated Click Helpers ----------
+async function handleDelete(taskId) {
+    try {
+      await API.deleteTask(Number(taskId));
+      AppState.selectedScenarios = AppState.selectedScenarios.filter(id => id !== String(taskId));
+      await refreshTasksAndHistory();
+      UI?.showToast && UI.showToast('Task deleted', 'success');
+    } catch (e) {
+      console.error(e);
+      UI?.showToast && UI.showToast('Failed to delete task', 'error');
+    }
+  }
+  
+  /**
+   * Delegate clicks for:
+   *  - selecting a card via .custom-checkbox
+   *  - deleting a task via .delete-task
+   * Works for both Today and History grids.
+   */
+  function delegateCardClicks(containerEl) {
+    if (!containerEl) return;
+  
+    containerEl.addEventListener('click', async (e) => {
+      // Toggle select
+      const checkbox = e.target.closest('.custom-checkbox');
+      if (checkbox && checkbox.dataset.scenarioId) {
+        toggleScenarioSelection(String(checkbox.dataset.scenarioId));
+        return;
+      }
+  
+      // Delete task
+      const delBtn = e.target.closest('.delete-task');
+      if (delBtn && delBtn.dataset.taskId) {
+        e.preventDefault();
+        if (confirm('Delete this task?')) {
+          await handleDelete(delBtn.dataset.taskId);
+        }
+      }
+    });
+  }
+  
+
+  
 // DOM Elements - will be initialized in init()
 let elements = {};
 
@@ -39,56 +112,35 @@ function initializeElements() {
         compareCount: document.getElementById('compare-count'),
         compareTab: document.getElementById('compare-tab'),
         loadingOverlay: document.getElementById('loading-overlay'),
+
+        // NEW
+        todayTaskList: document.getElementById('today-task-list'),
+        historyContainer: document.getElementById('history-container'),
+        archiveTodayBtn: document.getElementById('archive-today-btn'),
     };
     
     const foundCount = Object.keys(elements).filter(k => elements[k] !== null).length;
     console.log(`✅ DOM elements initialized: ${foundCount}/${Object.keys(elements).length} found`);
     
-    // Debug specific buttons
-    if (elements.newScenarioBtn) {
-        console.log('✅ newScenarioBtn found:', elements.newScenarioBtn);
-    } else {
-        console.error('❌ newScenarioBtn NOT FOUND in DOM!');
-        // Try querySelector as fallback
+    if (!elements.newScenarioBtn) {
         const btn = document.querySelector('#new-scenario-btn');
-        if (btn) {
-            console.log('Found via querySelector:', btn);
-            elements.newScenarioBtn = btn;
-        }
+        if (btn) elements.newScenarioBtn = btn;
     }
-    
-    if (elements.emptyCreateBtn) {
-        console.log('✅ emptyCreateBtn found:', elements.emptyCreateBtn);
-    } else {
-        console.error('❌ emptyCreateBtn NOT FOUND in DOM!');
+    if (!elements.emptyCreateBtn) {
         const btn = document.querySelector('#empty-create-btn');
-        if (btn) {
-            console.log('Found via querySelector:', btn);
-            elements.emptyCreateBtn = btn;
-        }
-    }
-    
-    if (elements.scenarioCreator) {
-        console.log('✅ scenarioCreator found:', elements.scenarioCreator);
-    } else {
-        console.error('❌ scenarioCreator NOT FOUND in DOM!');
+        if (btn) elements.emptyCreateBtn = btn;
     }
 }
 
 // Initialize the application
 async function init() {
-    // Initialize DOM elements first
     initializeElements();
-    
-    // Always set up event listeners first, regardless of backend status
     setupEventListeners();
     updateUI();
-    
-    // Check backend status asynchronously (don't block UI)
-    checkBackendStatus().catch(err => {
-        console.warn('Backend status check failed:', err);
-    });
-}
+    await refreshTasksAndHistory();   // <— ensure this is here
+    checkBackendStatus().catch(() => {});
+  }
+  
 
 // Check backend status and show indicator
 async function checkBackendStatus() {
@@ -96,9 +148,6 @@ async function checkBackendStatus() {
         const response = await fetch(`${API_BASE_URL}/health`);
         if (response.ok) {
             const health = await response.json();
-            console.log('Backend health:', health);
-            
-            // Show status in UI if backend is connected
             if (health.llm_provider && health.llm_provider !== 'mock') {
                 showBackendStatus('connected', `Connected to ${health.llm_provider} (${health.llm_model})`);
             } else {
@@ -111,9 +160,7 @@ async function checkBackendStatus() {
     }
 }
 
-// Show backend status indicator
 function showBackendStatus(status, message) {
-    // Remove existing status if any
     const existing = document.getElementById('backend-status');
     if (existing) existing.remove();
     
@@ -132,7 +179,6 @@ function showBackendStatus(status, message) {
     `;
     document.body.appendChild(statusEl);
     
-    // Auto-hide after 5 seconds if connected
     if (status === 'connected') {
         setTimeout(() => {
             if (statusEl.parentNode) {
@@ -145,186 +191,111 @@ function showBackendStatus(status, message) {
 }
 
 // Setup all event listeners
+// Setup all event listeners
 function setupEventListeners() {
-    console.log('Setting up event listeners...');
-    console.log('newScenarioBtn:', elements.newScenarioBtn);
-    console.log('emptyCreateBtn:', elements.emptyCreateBtn);
-    console.log('scenarioCreator:', elements.scenarioCreator);
-    
-    // Show/hide scenario creator
-    if (elements.newScenarioBtn) {
-        elements.newScenarioBtn.addEventListener('click', showCreator);
-        console.log('✅ Added click listener to newScenarioBtn');
-    } else {
-        console.error('❌ newScenarioBtn not found!');
-    }
-    
-    if (elements.emptyCreateBtn) {
-        elements.emptyCreateBtn.addEventListener('click', showCreator);
-        console.log('✅ Added click listener to emptyCreateBtn');
-    } else {
-        console.error('❌ emptyCreateBtn not found!');
-    }
-    if (elements.closeCreatorBtn) {
-        elements.closeCreatorBtn.addEventListener('click', hideCreator);
-    }
-    if (elements.cancelFormBtn) {
-        elements.cancelFormBtn.addEventListener('click', hideCreator);
-    }
-
-    // Form submission
-    if (elements.scenarioForm) {
-        elements.scenarioForm.addEventListener('submit', handleFormSubmit);
-    }
-
-    // Add assumption
-    if (elements.addAssumptionBtn) {
-        elements.addAssumptionBtn.addEventListener('click', addAssumptionInput);
-    }
-
-    // Tab navigation
+    if (elements.newScenarioBtn) elements.newScenarioBtn.addEventListener('click', showCreator);
+    if (elements.emptyCreateBtn) elements.emptyCreateBtn.addEventListener('click', showCreator);
+    if (elements.closeCreatorBtn) elements.closeCreatorBtn.addEventListener('click', hideCreator);
+    if (elements.cancelFormBtn) elements.cancelFormBtn.addEventListener('click', hideCreator);
+  
+    if (elements.scenarioForm) elements.scenarioForm.addEventListener('submit', handleFormSubmit);
+    if (elements.addAssumptionBtn) elements.addAssumptionBtn.addEventListener('click', addAssumptionInput);
+  
     const tabButtons = document.querySelectorAll('.tab-btn');
-    tabButtons.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            switchTab(btn.dataset.tab);
-        });
+    tabButtons.forEach(btn => btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchTab(btn.dataset.tab);
+    }));
+  
+    if (elements.compareSelectedBtn) elements.compareSelectedBtn.addEventListener('click', () => switchTab('compare'));
+    if (elements.clearSelectionBtn) elements.clearSelectionBtn.addEventListener('click', clearSelection);
+  
+    // 🔁 Use delegated click handling for both Today and History areas:
+    //    - selection via .custom-checkbox
+    //    - deletion via .delete-task
+    delegateCardClicks(document.getElementById('scenarios-grid'));   // Today list container
+    delegateCardClicks(document.getElementById('history-groups'));   // History container
+  
+    // Archive today's tasks
+    if (elements.archiveTodayBtn) {
+      elements.archiveTodayBtn.addEventListener('click', async () => {
+        const name = prompt('Session name?', 'Saved Session');
+        try {
+          await API.archiveCurrentTasks({ name: name || 'Saved Session' });
+          UI.showToast('Saved current tasks into a session', 'success');
+          await refreshTasksAndHistory();
+        } catch (err) {
+          console.error(err);
+          UI.showToast('Failed to archive tasks', 'error');
+        }
+      });
+    }
+    // 1) Delete buttons (works in both Today and History)
+document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action="delete-task"]');
+    if (!btn) return;
+  
+    const id = btn.getAttribute('data-id');
+    if (!id) return;
+  
+    if (!confirm('Delete this task? This cannot be undone.')) return;
+  
+    try {
+      const ok = await API.deleteScenario(id);
+      if (!ok) throw new Error('Delete failed');
+      UI.showToast('Deleted', 'success');
+      await refreshTasksAndHistory();
+    } catch (err) {
+      console.error(err);
+      UI.showToast('Failed to delete', 'error');
+    }
+  });
+  
+  // 2) Selection inside history cards
+  const historyContainer = document.getElementById('history-groups');
+  if (historyContainer) {
+    historyContainer.addEventListener('click', (e) => {
+      const checkbox = e.target.closest('.custom-checkbox');
+      if (!checkbox) return;
+      const sid = checkbox.dataset.scenarioId;
+      if (!sid) return;
+  
+      // toggle selected IDs
+      const i = AppState.selectedScenarios.indexOf(sid);
+      if (i > -1) AppState.selectedScenarios.splice(i, 1);
+      else AppState.selectedScenarios.push(sid);
+  
+      updateUI();
     });
-
-    // Selection actions
-    if (elements.compareSelectedBtn) {
-        elements.compareSelectedBtn.addEventListener('click', () => switchTab('compare'));
-    }
-    if (elements.clearSelectionBtn) {
-        elements.clearSelectionBtn.addEventListener('click', clearSelection);
-    }
-
-    // Delegate checkbox clicks
-    if (elements.scenariosGrid) {
-        elements.scenariosGrid.addEventListener('click', (e) => {
-            const checkbox = e.target.closest('.custom-checkbox');
-            if (checkbox) {
-                const scenarioId = checkbox.dataset.scenarioId;
-                toggleScenarioSelection(scenarioId);
-            }
-        });
-    }
-}
+  }
+  
+  }
+  
 
 // Expose function globally IMMEDIATELY (before it's defined)
 window.showCreatorForm = null; // Will be set below
 
 // Show scenario creator
 function showCreator(e) {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-    
-    console.log('🎯 showCreator called');
-    console.log('Event:', e);
-    
-    // Always search for the form element fresh (don't rely on cache)
-    let form = document.getElementById('scenario-creator');
-    
-    if (!form) {
-        console.log('⚠️ Not found by ID, trying querySelector...');
-        form = document.querySelector('#scenario-creator');
-    }
-    
-    if (!form) {
-        console.error('❌ scenarioCreator element not found in DOM!');
-        console.log('Available elements with "scenario" in ID:', 
-            Array.from(document.querySelectorAll('[id*="scenario"]')).map(el => el.id));
-        alert('Error: Could not find the scenario form. Please refresh the page.');
-        return;
-    }
-    
-    console.log('✅ Found form element:', form);
-    console.log('Form classes before:', form.className);
-    console.log('Form style.display before:', form.style.display);
-    console.log('Form computed display:', window.getComputedStyle(form).display);
-    
-    // Remove hidden class
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    let form = document.getElementById('scenario-creator') || document.querySelector('#scenario-creator');
+    if (!form) return alert('Error: Could not find the scenario form. Please refresh the page.');
     form.classList.remove('hidden');
-    
-    // Force display styles
     form.style.display = 'block';
     form.style.visibility = 'visible';
     form.style.opacity = '1';
-    
-    // Update cache
     elements.scenarioCreator = form;
-    
-    console.log('Form classes after:', form.className);
-    console.log('Form style.display after:', form.style.display);
-    console.log('Form computed display after:', window.getComputedStyle(form).display);
-    
-    // Scroll to form after a brief delay to ensure it's visible
-    setTimeout(() => {
-        try {
-            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            console.log('✅ Scrolled to form');
-        } catch (err) {
-            console.warn('Scroll failed:', err);
-        }
-        
-        // Double-check visibility
-        const computed = window.getComputedStyle(form);
-        console.log('Final computed styles:', {
-            display: computed.display,
-            visibility: computed.visibility,
-            opacity: computed.opacity
-        });
-        
-        if (computed.display === 'none' || computed.visibility === 'hidden') {
-            console.error('⚠️ Form still hidden! Forcing visibility...');
-            form.style.setProperty('display', 'block', 'important');
-            form.style.setProperty('visibility', 'visible', 'important');
-        }
-    }, 100);
-    
-    console.log('✅ Form should now be visible');
+    setTimeout(() => { try { form.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 100);
 }
 
 // Expose function globally for inline onclick handlers
 window.showCreatorForm = showCreator;
-
-// Also expose it immediately when script loads
-(function() {
-    'use strict';
-    window.showCreatorForm = function(e) {
-        console.log('🎯 showCreatorForm called (global)');
-        // Find form element
-        let form = document.getElementById('scenario-creator');
-        if (!form) {
-            form = document.querySelector('#scenario-creator');
-        }
-        if (form) {
-            console.log('✅ Found form, showing it');
-            form.classList.remove('hidden');
-            form.style.display = 'block';
-            form.style.visibility = 'visible';
-            form.style.opacity = '1';
-            setTimeout(() => {
-                form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }, 100);
-        } else {
-            console.error('Form not found!');
-        }
-    };
-    console.log('✅ showCreatorForm exposed to window');
-})();
+(function(){ window.showCreatorForm = showCreator; })();
 
 // Hide scenario creator
 function hideCreator() {
-    if (elements.scenarioCreator) {
-        elements.scenarioCreator.classList.add('hidden');
-    }
-    if (elements.scenarioForm) {
-        elements.scenarioForm.reset();
-    }
-    // Reset assumptions to just one input
+    if (elements.scenarioCreator) elements.scenarioCreator.classList.add('hidden');
+    if (elements.scenarioForm) elements.scenarioForm.reset();
     if (elements.assumptionsContainer) {
         elements.assumptionsContainer.innerHTML = `
             <div class="assumption-input flex gap-2">
@@ -348,83 +319,71 @@ function addAssumptionInput() {
             </svg>
         </button>
     `;
-    
-    // Add remove listener
-    newInput.querySelector('.remove-assumption').addEventListener('click', function() {
-        newInput.remove();
-    });
-    
+    newInput.querySelector('.remove-assumption').addEventListener('click', function() { newInput.remove(); });
     elements.assumptionsContainer.appendChild(newInput);
 }
 
 // Handle form submission
 async function handleFormSubmit(e) {
     e.preventDefault();
-    
-    // Gather form data
+  
     const formData = {
-        name: document.getElementById('scenario-name').value,
-        description: document.getElementById('description').value,
-        targetMarket: document.getElementById('target-market').value,
-        timeline: document.getElementById('timeline').value,
-        resources: document.getElementById('resources').value,
-        assumptions: []
+      name: document.getElementById('scenario-name').value,
+      description: document.getElementById('description').value,
+      targetMarket: document.getElementById('target-market').value,
+      timeline: document.getElementById('timeline').value,
+      resources: document.getElementById('resources').value || null,
+      assumptions: []
     };
-
+  
     // Gather assumptions
     if (elements.assumptionsContainer) {
-        const assumptionInputs = elements.assumptionsContainer.querySelectorAll('input');
-        assumptionInputs.forEach(input => {
-            if (input.value.trim()) {
-                formData.assumptions.push(input.value.trim());
-            }
-        });
+      const inputs = elements.assumptionsContainer.querySelectorAll('input');
+      inputs.forEach(input => {
+        const v = input.value.trim();
+        if (v) formData.assumptions.push(v);
+      });
     }
-
+  
     // Show loading
-    if (elements.loadingOverlay) {
-        elements.loadingOverlay.classList.remove('hidden');
-    }
-
+    elements.loadingOverlay?.classList.remove('hidden');
+  
     try {
-        // Call API to analyze scenario
-        const scenario = await API.analyzeScenario(formData);
-        
-        // Add to state
-        AppState.scenarios.unshift(scenario);
-        
-        // Hide creator and loading
-        hideCreator();
-        if (elements.loadingOverlay) {
-            elements.loadingOverlay.classList.add('hidden');
-        }
-        
-        // Update UI
-        updateUI();
-        
-        // Show success message
-        if (UI && UI.showToast) {
-            UI.showToast('Scenario created and analyzed successfully!', 'success');
-        }
+      // 1) Get AI analysis
+      const analyzed = await API.analyzeScenario(formData);
+  
+      // 2) Persist to DB with required field names/aliases
+      await API.createTask({
+        name: analyzed.name,
+        description: analyzed.description,
+        targetMarket: analyzed.targetMarket,
+        timeline: analyzed.timeline,
+        resources: analyzed.resources,
+        assumptions: analyzed.assumptions,
+        aiAnalysis: analyzed.aiAnalysis,
+        createdAt: analyzed.createdAt,
+      });
+  
+      // 3) Refresh Today's and History
+      await refreshTasksAndHistory();
+  
+      // UI updates
+      hideCreator();
+      UI?.showToast && UI.showToast('Task created & saved!', 'success');
     } catch (error) {
-        if (elements.loadingOverlay) {
-            elements.loadingOverlay.classList.add('hidden');
-        }
-        if (UI && UI.showToast) {
-            UI.showToast('Error creating scenario', 'error');
-        }
-        console.error('Error:', error);
+      console.error(error);
+      UI?.showToast && UI.showToast('Error creating task', 'error');
+    } finally {
+      elements.loadingOverlay?.classList.add('hidden');
     }
-}
+  }
+  
 
 // Toggle scenario selection
 function toggleScenarioSelection(scenarioId) {
     const index = AppState.selectedScenarios.indexOf(scenarioId);
-    if (index > -1) {
-        AppState.selectedScenarios.splice(index, 1);
-    } else {
-        AppState.selectedScenarios.push(scenarioId);
-    }
+    if (index > -1) AppState.selectedScenarios.splice(index, 1);
+    else AppState.selectedScenarios.push(scenarioId);
     updateUI();
 }
 
@@ -437,140 +396,138 @@ function clearSelection() {
 // Switch tabs
 function switchTab(tabName) {
     AppState.currentTab = tabName;
-    
-    // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.dataset.tab === tabName) {
-            btn.classList.add('active');
-        }
+        if (btn.dataset.tab === tabName) btn.classList.add('active');
     });
-    
-    // Update tab content
     document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-        content.classList.add('hidden');
+        content.classList.remove('active'); content.classList.add('hidden');
     });
-    
     const activeContent = document.getElementById(`${tabName}-content`);
-    if (activeContent) {
-        activeContent.classList.remove('hidden');
-        activeContent.classList.add('active');
-    }
-    
-    // Render appropriate content
-    if (tabName === 'compare') {
-        renderComparisonView();
-    } else if (tabName === 'insights') {
-        renderInsightsView();
-    }
+    if (activeContent) { activeContent.classList.remove('hidden'); activeContent.classList.add('active'); }
+    if (tabName === 'compare') renderComparisonView();
+    else if (tabName === 'insights') renderInsightsView();
 }
 
 // Update the entire UI
 function updateUI() {
     const hasScenarios = AppState.scenarios.length > 0;
-    
-    // Show/hide empty state
-    if (elements.emptyState) {
-        elements.emptyState.classList.toggle('hidden', hasScenarios);
-    }
-    if (elements.tabsNavigation) {
-        elements.tabsNavigation.classList.toggle('hidden', !hasScenarios);
-    }
-    
+  
+    if (elements.emptyState) elements.emptyState.classList.toggle('hidden', hasScenarios);
+    if (elements.tabsNavigation) elements.tabsNavigation.classList.toggle('hidden', !hasScenarios);
+  
+    // ❗️Always clear the grid first
+    if (elements.scenariosGrid) elements.scenariosGrid.innerHTML = '';
+  
     if (hasScenarios) {
-        // Render scenarios
-        renderScenarios();
-        
-        // Update selection UI
-        updateSelectionUI();
-        
-        // Update current tab content
-        if (AppState.currentTab === 'compare') {
-            renderComparisonView();
-        } else if (AppState.currentTab === 'insights') {
-            renderInsightsView();
-        }
+      renderScenarios();
+      updateSelectionUI();
+      if (AppState.currentTab === 'compare') renderComparisonView();
+      else if (AppState.currentTab === 'insights') renderInsightsView();
     }
-}
+  
+    if (elements.todayTaskList) UI.renderTodayList(elements.todayTaskList, AppState.todayTasks);
+    if (elements.historyContainer) UI.renderHistoryGrouped(elements.historyContainer, AppState.sessions);
+  }
+  
 
-// Render scenarios grid
+// Render scenarios grid (existing cards)
 function renderScenarios() {
-    if (elements.scenariosGrid) {
-        elements.scenariosGrid.innerHTML = AppState.scenarios
-            .map(scenario => UI.renderScenarioCard(
-                scenario, 
-                AppState.selectedScenarios.includes(scenario.id)
-            ))
-            .join('');
-    }
+    if (!elements.scenariosGrid) return;
+    elements.scenariosGrid.innerHTML = AppState.scenarios
+        .map(scenario => UI.renderScenarioCard(scenario, AppState.selectedScenarios.includes(scenario.id)))
+        .join('');
 }
 
 // Update selection UI
 function updateSelectionUI() {
     const count = AppState.selectedScenarios.length;
-    
-    // Update selection banner
-    if (elements.selectionBanner) {
-        elements.selectionBanner.classList.toggle('hidden', count === 0);
-    }
-    if (elements.selectionCount) {
-        elements.selectionCount.textContent = count;
-    }
-    
-    // Show/hide compare button
-    if (elements.compareSelectedBtn) {
-        elements.compareSelectedBtn.classList.toggle('hidden', count < 2);
-    }
-    
-    // Update compare tab count
-    if (elements.compareCount) {
-        elements.compareCount.textContent = count;
-    }
-    
-    // Enable/disable compare tab
+    if (elements.selectionBanner) elements.selectionBanner.classList.toggle('hidden', count === 0);
+    if (elements.selectionCount) elements.selectionCount.textContent = count;
+    if (elements.compareSelectedBtn) elements.compareSelectedBtn.classList.toggle('hidden', count < 2);
+    if (elements.compareCount) elements.compareCount.textContent = count;
     if (elements.compareTab) {
         elements.compareTab.disabled = count < 2;
-        if (count < 2) {
-            elements.compareTab.classList.add('opacity-50', 'cursor-not-allowed');
-        } else {
-            elements.compareTab.classList.remove('opacity-50', 'cursor-not-allowed');
-        }
+        if (count < 2) elements.compareTab.classList.add('opacity-50', 'cursor-not-allowed');
+        else elements.compareTab.classList.remove('opacity-50', 'cursor-not-allowed');
     }
 }
 
 // Render comparison view
 function renderComparisonView() {
-    const selectedScenarioObjects = AppState.scenarios.filter(s => 
-        AppState.selectedScenarios.includes(s.id)
-    );
-    
+    const pool = [...AppState.scenarios, ...AppState.historyTasksFlat];
+    const selected = pool.filter(s => AppState.selectedScenarios.includes(s.id));
     const compareContent = document.getElementById('compare-content');
-    if (compareContent) {
-        compareContent.innerHTML = UI.renderComparisonView(selectedScenarioObjects);
-    }
-}
+    if (compareContent) compareContent.innerHTML = UI.renderComparisonView(selected);
+  }
+  
 
 // Render insights view
 function renderInsightsView() {
     const insightsContent = document.getElementById('insights-content');
-    if (insightsContent) {
-        insightsContent.innerHTML = UI.renderInsightsPanel(AppState.scenarios);
-    }
+    if (insightsContent) insightsContent.innerHTML = UI.renderInsightsPanel(AppState.scenarios);
 }
+
+// Fetch Today + History from backend and render
+async function refreshTasksAndHistory() {
+    try {
+      // Today (DB rows -> normalized)
+      const todayRows = await API.getTodayTasks();
+      const today = (todayRows || []).map(normalizeTask);
+  
+      AppState.scenarios = today;
+      if (elements.todayTaskList) UI.renderTodayList(elements.todayTaskList, today);
+      const todayEmpty = document.getElementById('today-empty');
+      if (todayEmpty) todayEmpty.classList.toggle('hidden', today.length > 0);
+  
+      // History groups: { groups: { 'YYYY-MM-DD': [rows...] } }
+      const { groups } = await API.getHistoryGroups();
+  
+      // Build history DOM + flat cache
+      const historyContainer = document.getElementById('history-groups');
+      AppState.historyTasksFlat = []; // reset
+  
+      if (!groups || Object.keys(groups).length === 0) {
+        if (historyContainer) {
+          historyContainer.innerHTML = `<div class="text-sm text-slate-500 bg-white border border-slate-200 rounded-lg p-6">No past sessions yet.</div>`;
+        }
+      } else {
+        if (historyContainer) {
+          historyContainer.innerHTML = Object.entries(groups).map(([date, tasks]) => {
+            const normalized = tasks.map(normalizeTask);
+            // store into flat cache for compare/selection
+            AppState.historyTasksFlat.push(...normalized);
+  
+            return `
+              <div class="bg-white rounded-lg border border-slate-200">
+                <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                  <h3 class="text-sm font-semibold text-slate-700">${date}</h3>
+                  <span class="text-xs text-slate-500">${normalized.length} item(s)</span>
+                </div>
+                <div class="p-4 grid gap-4 md:grid-cols-2">
+                  ${normalized.map(t => UI.renderScenarioCard(t, AppState.selectedScenarios.includes(t.id))).join('')}
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+  
+      // Re-render the main UI (keeps counts, compare/insights awareness)
+      updateUI();
+    } catch (err) {
+      console.error('Failed to load tasks/sessions:', err);
+    }
+  }
+  
+  
+  
+  
 
 // Start the application when DOM is ready
 function startApp() {
-    console.log('🚀 Starting app initialization...');
-    console.log('Document ready state:', document.readyState);
-    
-    // Wait a tiny bit to ensure all scripts are loaded
     setTimeout(() => {
-        try {
-            init();
-        } catch (error) {
-            console.error('❌ Error during initialization:', error);
-        }
+        try { init(); } catch (error) { console.error('❌ Error during initialization:', error); }
     }, 100);
 }
 
@@ -580,14 +537,36 @@ if (document.readyState === 'loading') {
     startApp();
 }
 
-// Also try event delegation as a fallback
-document.addEventListener('click', function(e) {
-    // Check if clicked element is one of our buttons
-    const target = e.target.closest('#new-scenario-btn, #empty-create-btn');
-    if (target) {
-        console.log('Button clicked via event delegation:', target.id);
-        e.preventDefault();
-        e.stopPropagation();
-        showCreator(e);
+// Global click delegation for delete + select in both Today and History
+document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action="delete-task"]');
+    if (!btn) return;
+  
+    const idStr = btn.getAttribute('data-id');
+    const idNum = Number(idStr);
+    if (!Number.isInteger(idNum) || idNum <= 0) {
+      UI.showToast('Delete failed: invalid task id', 'error');
+      return;
     }
-});
+  
+    if (!confirm('Delete this task?')) return;
+  
+    try {
+      const ok = await API.deleteScenario(idNum);
+      if (!ok) throw new Error('Delete failed');
+  
+      // ✅ Optimistic local removal so the card disappears right away
+      AppState.scenarios = AppState.scenarios.filter(s => String(s.id) !== String(idNum));
+      updateUI();
+  
+      // Then fetch clean state from server (today + history)
+      await refreshTasksAndHistory();
+  
+      UI.showToast('Deleted', 'success');
+    } catch (err) {
+      console.error(err);
+      UI.showToast('Failed to delete', 'error');
+    }
+  });
+  
+  
