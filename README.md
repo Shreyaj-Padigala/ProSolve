@@ -93,7 +93,7 @@ Shows:
 ## **Backend**
 - **FastAPI** (Python)
 - SQLite + SQLModel ORM
-- Modular LLM client (Groq/Nemotron with mock fallback)
+- Modular LLM client (Groq)
 - Built-in `/simulate`, `/tasks`, `/tasks/today`, `/tasks/history`
 - Debug middleware with full trace logs
 - Automatic DB setup on startup
@@ -105,7 +105,7 @@ Shows:
 
 ## **AI Layer**
 - Modular LLM client:
-  - Groq / Nemotron  
+  - Groq
   - Automatic JSON schema generation  
   - Mock fallback mode  
 - Strong system prompts  
