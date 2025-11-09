@@ -113,48 +113,25 @@ Shows:
 
 ---
 
-# 📂 Project Structure
-
-prosolve/
-│
-├── frontend/
-│ ├── index.html
-│ ├── styles.css
-│ ├── app.js
-│ ├── api.js
-│ ├── ui.js
-│ └── assets/
-│
-├── backend/
-│ ├── app.py
-│ ├── utils/
-│ │ └── llm_client.py
-│ ├── prompts/
-│ │ └── templates.py
-│ ├── storage/
-│ └── prosolve.db (auto-created)
-│
-└── README.md
-
-
----
-
 # ⚙️ Installation & Setup
 
 ## ✅ 1. Backend Setup
 
 ### Install Python dependencies:
 ```bash
-cd backend
+cd ProSolve
 pip install -r requirements.txt
 
 **RUN FASTAPI**
 uvicorn app:app --reload --port 8000
+(output):
 ✅ SQLite ready at sqlite:///./prosolve.db
 
-**RUN FRONTEND**
+Proceed ->
 
-frontend/index.html
+**RUN FRONTEND**
+cd frontend
+python3 -m http.server 5500
 Right click → "Open with Live Server"
 
 
